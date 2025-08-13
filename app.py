@@ -36,7 +36,6 @@ ACTIVITIES: List[Tuple[str, str]] = [
     ("Crafting Workshop", "activity_crafting.jpg"),
     ("Wine Tasting", "activity_winetasting.jpg"),
     ("Pub Crawl", "activity_pubcrawl.jpg"),
-    ("Dessert Café", "activity_dessertcafe.jpg"),
     ("Cat Cafe", "activity_catcafe.jpg"),
     ("Cafe", "activity_cafe.jpg"),
 ]
@@ -49,8 +48,6 @@ FOOD: List[Tuple[str, str]] = [
     ("Sushi (veg options)", "food_sushi_veg.jpg"),
     ("Burgers (veg)", "food_burgers_veg.jpg"),
     ("Vegan Curry", "food_curry_veg.jpg"),
-    ("Falafel Wraps", "food_falafel_veg.jpg"),
-    ("Salad Bar", "food_saladbar.jpg"),
     ("Ice Cream Parlour", "food_icecream.jpg"),
     ("Desserts", "food_desserts.jpg"),
 ]
