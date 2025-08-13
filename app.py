@@ -1,10 +1,13 @@
-# app.py — Local Tinder-style Date Planner (no email)
-# Run: pip install streamlit
+# app.py — Tinder-style Date Planner WITH email submit
+# Local run: pip install streamlit
+# Cloud run: add EMAIL_USER/EMAIL_PASS in Streamlit Secrets (see notes below)
 # Then: streamlit run app.py
 
 import streamlit as st
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
+from email.message import EmailMessage
+import smtplib, ssl
 
 st.set_page_config(page_title="Date Planner (Swipe)", page_icon="💘", layout="wide")
 
@@ -33,6 +36,7 @@ ACTIVITIES: List[Tuple[str, str]] = [
     ("Crafting Workshop", "activity_crafting.jpg"),
     ("Wine Tasting", "activity_winetasting.jpg"),
     ("Pub Crawl", "activity_pubcrawl.jpg"),
+    ("Dessert Café", "activity_dessertcafe.jpg"),
     ("Cat Cafe", "activity_catcafe.jpg"),
     ("Cafe", "activity_cafe.jpg"),
 ]
@@ -45,6 +49,8 @@ FOOD: List[Tuple[str, str]] = [
     ("Sushi (veg options)", "food_sushi_veg.jpg"),
     ("Burgers (veg)", "food_burgers_veg.jpg"),
     ("Vegan Curry", "food_curry_veg.jpg"),
+    ("Falafel Wraps", "food_falafel_veg.jpg"),
+    ("Salad Bar", "food_saladbar.jpg"),
     ("Ice Cream Parlour", "food_icecream.jpg"),
     ("Desserts", "food_desserts.jpg"),
 ]
@@ -64,13 +70,15 @@ def ensure_state():
     if "idx" not in ss:
         ss.idx = {cat: 0 for cat in ORDER}
     if "likes" not in ss:
-        ss.likes = {cat: [] for cat in ORDER}
+        ss.likes = {cat: [] for cat in ORDER}   # [(label, filename), ...]
     if "passes" not in ss:
         ss.passes = {cat: [] for cat in ORDER}
     if "done" not in ss:
         ss.done = {cat: False for cat in ORDER}
     if "suggestions" not in ss:
         ss.suggestions = ""
+    if "email_sent" not in ss:
+        ss.email_sent = False
 
 ensure_state()
 
@@ -94,12 +102,60 @@ def reset_all():
     for cat in ORDER:
         reset_category(cat)
     st.session_state.suggestions = ""
+    st.session_state.email_sent = False
     st.session_state.page = "Home"
 
 def category_progress(cat: str) -> str:
     total = len(CATEGORIES[cat])
     i = st.session_state.idx[cat]
     return f"{min(i+1, total)}/{total}" if not st.session_state.done[cat] else f"{total}/{total}"
+
+def build_text_summary() -> str:
+    lines = ["Date Planner Picks", ""]
+    for cat in ORDER:
+        liked_labels = [lbl for (lbl, _) in st.session_state.likes[cat]]
+        lines.append(f"{cat}: " + (", ".join(liked_labels) if liked_labels else "-"))
+    if st.session_state.suggestions.strip():
+        lines += ["", "Notes:", st.session_state.suggestions.strip()]
+    return "\n".join(lines) + "\n"
+
+# ---------- Email ----------
+def send_email_to_ewan(subject: str, body: str) -> bool:
+    """
+    Sends an email to ewanroberts200413@gmail.com using Gmail SMTP.
+    Requires Streamlit Secrets:
+      EMAIL_USER="your_gmail_address"
+      EMAIL_PASS="your_gmail_app_password"
+    """
+    try:
+        sender = st.secrets["EMAIL_USER"]
+        password = st.secrets["EMAIL_PASS"]
+        recipient = "ewanroberts200413@gmail.com"
+
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = sender
+        msg["To"] = recipient
+        msg.set_content(body)
+
+        # Try SSL (465), then fallback to STARTTLS (587)
+        try:
+            context = ssl.create_default_context()
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+                server.login(sender, password)
+                server.send_message(msg)
+            return True
+        except Exception:
+            with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                server.ehlo()
+                server.starttls(context=ssl.create_default_context())
+                server.ehlo()
+                server.login(sender, password)
+                server.send_message(msg)
+            return True
+    except Exception as e:
+        st.error(f"Email error: {e}")
+        return False
 
 # ---------- Pages ----------
 def home_page():
@@ -226,15 +282,31 @@ def summary_page():
         st.write(st.session_state.suggestions.strip())
 
     # Download text summary
-    lines = ["Date Planner Picks", ""]
-    for cat in ORDER:
-        liked_labels = [lbl for (lbl, _) in st.session_state.likes[cat]]
-        lines.append(f"{cat}: " + (", ".join(liked_labels) if liked_labels else "-"))
-    if st.session_state.suggestions.strip():
-        lines += ["", "Notes:", st.session_state.suggestions.strip()]
-    text_blob = "\n".join(lines) + "\n"
-
+    text_blob = build_text_summary()
     st.download_button("Download your picks", data=text_blob, file_name="date_plan.txt")
+
+    # --- Submit & Email to Ewan ---
+    st.markdown("### Submit your picks")
+    name = st.text_input("Your name (optional)")
+    feedback = st.text_area("What did you think of this planner?", height=100)
+    if st.button("Submit and email to Ewan"):
+        body = []
+        if name.strip():
+            body.append(f"Name: {name.strip()}")
+        if feedback.strip():
+            body += ["Feedback:", feedback.strip(), ""]
+        body.append("Selections:")
+        for cat in ORDER:
+            liked_labels = [lbl for (lbl, _) in st.session_state.likes[cat]]
+            body.append(f"- {cat}: " + (", ".join(liked_labels) if liked_labels else "-"))
+        if st.session_state.suggestions.strip():
+            body += ["", "Notes:", st.session_state.suggestions.strip()]
+        ok = send_email_to_ewan("Date Planner submission", "\n".join(body))
+        if ok:
+            st.success("Submitted! Your picks were emailed to Ewan.")
+            st.session_state.email_sent = True
+        else:
+            st.error("Couldn’t send email. Check secrets on Streamlit Cloud.")
 
     c1, c2 = st.columns(2)
     with c1:
@@ -253,7 +325,6 @@ with st.sidebar:
         done_mark = "✅" if st.session_state.done[cat] else "⏳"
         st.write(f"{done_mark} {cat}: {category_progress(cat)}")
     st.divider()
-    # This radio follows current page; changing it navigates without overriding clicks.
     pages = ["Home", *ORDER, "Suggestions", "Summary"]
     current_idx = pages.index(st.session_state.page) if st.session_state.page in pages else 0
     nav_choice = st.radio("Go to:", pages, index=current_idx, key="nav_radio")
